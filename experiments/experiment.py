@@ -16,4 +16,4 @@ class Experiment():
     def run_experiment(self):
         self.trainer_class(self.model_class, self.fetcher).train()
 
-Experiment(model_class=deep_sets.DeepSets).run_experiment()
+Experiment().run_experiment()

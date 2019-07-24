@@ -1,11 +1,12 @@
 import tensorflow as tf
 from set_utils import row_wise_mlp
+from set_model import SetModel
 
-class DeepSets():
+class DeepSets(SetModel):
     def __init__(self, inputs):
         self.inputs = inputs
 
-    def get_tf_train_graph(self):
+    def _get_model(self):
         with tf.variable_scope('deepsets'):
             # Set permequi
             tens = self.inputs
@@ -17,16 +18,14 @@ class DeepSets():
 
 def forward(inputs, norm=tf.reduce_max, out_dim=256, layer=1):
     with tf.variable_scope('permequiv{}'.format(layer)):
-        dim = tf.shape(inputs)[1]
         norm_val = norm(inputs, 1, keepdims=True)
         normed = inputs - norm_val
-        return row_wise_mlp(normed, [{'nodes': out_dim, 'sigma': tf.nn.tanh}])
+        return row_wise_mlp(normed, hidden_sizes=[out_dim], sigma=tf.nn.tanh)
 
 def final_pass(inputs):
-    identity = lambda x: x
-    dim = inputs.get_shape()[1]
+    return inputs
     inputs = tf.nn.dropout(inputs, rate=0.5)
-    inputs = row_wise_mlp(inputs, [{'nodes': dim, 'sigma': tf.nn.tanh}], mat=True)
+    inputs = row_wise_mlp(inputs, hidden_sizes=[40], sigma=tf.nn.tanh)
     inputs = tf.nn.dropout(inputs, rate=0.5)
     return row_wise_mlp(inputs, [{'nodes': 40, 'sigma': identity}], mat=True, name="final")
 

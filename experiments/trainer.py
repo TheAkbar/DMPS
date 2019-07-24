@@ -2,6 +2,7 @@ import tensorflow as tf
 from ..model.set_utils import row_wise_mlp
 import sys
 import numpy as np
+import time
 
 class Trainer():
     def __init__(self, model_class, dataset_fetcher):
@@ -12,19 +13,15 @@ class Trainer():
         self.lr_update = tf.assign(self.lr, self.lr * lr_decay)
     
     def _model_results(self):
-        # placeholder for data i/o
-        self.inputs = tf.placeholder(tf.float32, (None, None, 3), 'inputs')
+        # placeholder for data input and labels
+        self.inputs = tf.placeholder(tf.float64, (None, None, 3), 'inputs')
         self.ys = tf.placeholder(tf.int32, (None,), 'ys')
-        self.model = self.model_class(self.inputs).get_tf_train_graph()
-        logits = row_wise_mlp(
-            self.model, [{"nodes": 40, "sigma":tf.identity}], 
-            mat=True,
-        )
+        self.logits = self.model_class(self.inputs).get_model()
 
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=logits, labels=self.ys)
+            logits=self.logits, labels=self.ys)
         # Predictions
-        pred = tf.to_int32(tf.argmax(logits, axis=1))
+        pred = tf.to_int32(tf.argmax(self.logits, axis=1))
         # Accuracy
         acc = tf.to_float(tf.equal(pred, self.ys))
         return tf.reduce_mean(loss), tf.reduce_sum(acc)
@@ -34,9 +31,10 @@ class Trainer():
         lr_val = sess.run(self.lr)
         print("on fit...")
 
-        for epoch in range(500):
+        for epoch in range(350):
             print("epoch {} training".format(epoch))
             sys.stdout.flush()
+            train_acc = 0.0
             for inps, ys in self.fetcher.train_batch():
                 loss_val, _ = sess.run(
                     (self.loss, self.train_step),
@@ -46,20 +44,22 @@ class Trainer():
                     },
                 )
             
-                # train_acc = 1.0*sess.run(
-                #     self.acc,
-                #     feed_dict={
-                #             self.inputs: inps,
-                #             self.ys: ys,
-                #         },
-                # )/len(ys)
-                # print("train batch... accuracy val: {}".format(train_acc))
-
+                train_acc, logits = sess.run(
+                    (self.acc, self.logits),
+                    feed_dict={
+                        self.inputs: inps,
+                        self.ys: ys,
+                    },
+                )
+                train_acc = train_acc/len(ys)
+                # print(logits)
             test_acc = self.evaluate(sess)
             if test_acc > best_acc:
                 best_acc = test_acc
                 # self.saver.save(sess, self.model_path)
-            print("Current Test Acc: {} Best Acc: {}".format(test_acc, best_acc))
+            print("Current Train Acc: {} Test Acc: {} Best Acc: {}".format(
+                train_acc, test_acc, best_acc
+            ))
 
             if (epoch+1) % 10 == 0:
                 sess.run(self.lr_update)
@@ -73,7 +73,7 @@ class Trainer():
         counts = 0
         sum_acc = 0.0
         for inps, ys in self.fetcher.test_batch():
-            counts +=  len(ys)
+            counts += len(inps)
             sum_acc += sess.run(
                 self.acc,
                 feed_dict={
@@ -94,3 +94,4 @@ class Trainer():
             print("starting trainer...")
             sess.run(tf.global_variables_initializer())
             self.fit(sess)
+            

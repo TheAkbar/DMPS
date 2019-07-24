@@ -6,7 +6,7 @@ class EndOfBatchError(IndexError):
     pass
 
 class BatchFetcher:
-    def __init__(self, dataset, labels, down_sample=100):
+    def __init__(self, dataset, labels, down_sample=10):
         self._N = dataset.shape[0]
         _perm = np.random.permutation(self._N)
         self._dataset = dataset[_perm]
@@ -27,7 +27,7 @@ class BatchFetcher:
         return self._dataset[np.ix_(inds,perm)], self._labels[inds]
 
 class DatasetFetcher:
-    def __init__(self, path, batch_size=128):
+    def __init__(self, path, batch_size=64):
         with h5py.File(path, 'r') as f:
             _train_data = np.array(f['tr_cloud'])
             _train_label = np.array(f['tr_labels'])
@@ -37,6 +37,10 @@ class DatasetFetcher:
         # self.validation = BatchFetcher()
         # self.test = BatchFetcher(_test_data, _test_label)
         self.batch_size = batch_size
+        self._test_data = _test_data
+        self._test_label = _test_label
+        self._train_data = _train_data
+        self._train_label = _train_label
 
         self.train_batch = lambda b=self.batch_size: self.batch_data(
             _train_data, _train_label, b

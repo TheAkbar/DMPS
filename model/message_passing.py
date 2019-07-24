@@ -2,6 +2,7 @@ import tensorflow as tf
 
 from deep_kernel import DeepKernel, pool_on_kernel
 from set_utils import row_wise_mlp
+from set_model import SetModel
 
 def block(inputs):
     feature_vec = row_wise_mlp(
@@ -25,27 +26,24 @@ class DMPSBlock():
     DENOISE = "denoising_block"
     RESIDUAL = "residual_block"
 
-class MessagePassing():
-    def __init__(self, input, dmps_blocks=3):
+class MessagePassing(SetModel):
+    def __init__(self, input, dmps_blocks=[DMPSBlock.DENOISE] * 3):
         self.input = input
         self.dmps_blocks = dmps_blocks
 
-    def get_tf_train_graph(self):
+    def _get_model(self):
         with tf.variable_scope('DMPS'):
             # feature extraction
             feature_vec = row_wise_mlp(
-                self.input,
-                [{"nodes": 256, "sigma": tf.nn.relu}], 
-                name="feature_extraction", init_pos=True,
+                self.input, hidden_sizes=[256], sigma=tf.nn.relu, 
+                name="feature_extraction", initializer=None,
             )
             # learn latent graph
-            k = DeepKernel([
-                {"nodes": 256, "sigma": tf.nn.tanh},
-                {"nodes": 512, "sigma": tf.nn.tanh},
-            ], row_norm=False,)
-            learned_graph = k.build_kernel_matrix(feature_vec)
+            k = DeepKernel(hidden_sizes=[256, 512], sigma=tf.nn.tanh)
+            learned_graph = k.build_kernel_matrix(feature_vec, row_norm=False, mean_norm=False)
             # run message passing
             for i, block in enumerate(self.dmps_blocks):
+
                 feature_vec = self._message_passing(
                     feature_vec, block, 
                     learned_graph, layer = i,
@@ -56,24 +54,22 @@ class MessagePassing():
             return final_vec
 
     def _message_passing(
-        self, input, dmps_block, graph, sigma = tf.nn.tanh, layer = 1
+        self, input, dmps_block, graph, sigma=tf.nn.tanh, layer=1
     ):
         with tf.variable_scope("message_passing_{}".format(layer)):
             # matmul works on 3d tensors apparently
-            diffusion = pool_on_kernel(input, graph, op="max")
+            diffusion = pool_on_kernel(graph, input, op="approx_max")
             # denoising block
             if dmps_block == DMPSBlock.DENOISE:
                 alpha = tf.get_variable(
-                    "diffusion_constant", [1], dtype=tf.float32
+                    "diffusion_constant", [1], dtype=tf.float64
                 )
                 diffusion = alpha * input + (1-alpha) * diffusion
             # single nn layer
-            dims = tf.shape(diffusion)
             diffusion = row_wise_mlp(
-                diffusion, 
-                [{"nodes": 256, "sigma": sigma}], name="linear_layer",
+                diffusion, hidden_sizes=[256], sigma=sigma, name="linear_layer", 
                 identity_supplement=(dmps_block == DMPSBlock.DENOISE),
-                init_pos=True,
+                initializer=None,
             )
             # residual block
             if dmps_block == DMPSBlock.RESIDUAL:
